@@ -1893,4 +1893,28 @@
      <!-- Title for the unselected state of a CompoundButton. -->
      <string name="accessibility_compound_button_unselected">not checked</string>
 
+    <!-- Additions by Cyanogen -->
+    <string name="zz_reboot_system">Reboot phone</string>
+    <string name="zz_reboot_progress">Rebooting phone\u2026</string>
+    <string name="zz_reboot_confirm">Your phone will reboot.</string>
+    <string name="zz_global_action_reboot">Reboot phone</string>
+
+    <!-- Additions by Stericson -->
+    <string name="zz_button1">Always lock status bar</string>
+    <string name="zz_button2">On touch, Keep display on</string>
+    <string name="zz_button3">Disable Animations</string>
+    <string name="zz_button4">Disable Interactivity</string>
+    <string name="zz_button5">Show Carrier, Sim Info</string>
+    <string name="zz_button6">Make ICE the default screen</string>
+    <string name="zzice1">This phone is owned by:</string>
+    <string name="zzice2">In Case of Emergency, or if you have found this phone, Please call:</string>
+    <string name="zzicenotfound1">Ice Setup</string>
+    <string name="zzicenotfound2">To set up the ICE screen please go into Contacts and create a contact named ICE. Put your name in the postal address slot. Put the number for people to reach you at in the appropriate place and put a star in the front of the number and at the end of it to prevent it from showing as an incoming call. You can also add any special instructions by filling in the notes section. Only three fields should be filled in! number, postal address, and notes. No more.</string>
+    <string name="zzline1">Stericson and JDWME LockScreen</string>
+    <string name="zzline2">XDA Android Developers </string>
+    <string name="zzline3">Version: 0.5</string>
+    <string name="zzline4">XDA and Android,</string>
+    <string name="zzline5">Nothings</string>
+    <string name="zzline6">Impossible</string>
+
 </resources>

@@ -706,4 +706,29 @@
     <string name="create_contact_using" msgid="4947405226788104538">"<xliff:g id="NUMBER">%s</xliff:g>を使って"\n"連絡先を新規登録"</string>
     <string name="accessibility_compound_button_selected" msgid="5612776946036285686">"オン"</string>
     <string name="accessibility_compound_button_unselected" msgid="8864512895673924091">"オフ"</string>
+
+    <!-- Additions by Cyanogen -->
+    <string name="zz_reboot_system">"再起動"</string>
+    <string name="zz_reboot_progress">"再起動中です"</string>
+    <string name="zz_reboot_confirm">"再起動しますか"</string>
+    <string name="zz_global_action_reboot">"再起動"</string>
+
+    <!-- Additions by Stericson -->
+    <string name="zz_button1">"ステータスバーをロックする"</string>
+    <string name="zz_button2">"タッチでスリープを抑止する"</string>
+    <string name="zz_button3">"アニメーションを無効にする"</string>
+    <string name="zz_button4">"対話的操作を無効にする"</string>
+    <string name="zz_button5">"キャリア情報・SIM情報を表示する"</string>
+    <string name="zz_button6">"所有者情報表示をデフォルトにする"</string>
+    <string name="zzice1">"携帯電話の所有者情報:"</string>
+    <string name="zzice2">"この携帯電話を拾われた方は、お手数ですが下記にご連絡お願いします:"</string>
+    <string name="zzicenotfound1">"所有者情報表示の設定"</string>
+    <string name="zzicenotfound2">"所有者情報表示を行うためには、連絡先を「ICE」という氏名で新規作成し、所有者名を住所欄に、連絡先を電話番号欄、追記事項をメモ欄に記入してください。 (着信履歴にこの連絡先が表示されないように、電話番号の前後に*を付けることをお勧めします)"</string>
+    <string name="zzline1">Stericson and JDWME LockScreen</string>
+    <string name="zzline2">XDA Android Developers </string>
+    <string name="zzline3">Version: 0.5</string>
+    <string name="zzline4">XDA and Android,</string>
+    <string name="zzline5">Nothings</string>
+    <string name="zzline6">Impossible</string>
+
 </resources>
