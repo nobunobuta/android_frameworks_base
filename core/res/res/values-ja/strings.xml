@@ -731,4 +731,10 @@
     <string name="zzline5">Nothings</string>
     <string name="zzline6">Impossible</string>
 
+    <!-- Additions by Cyanogen -->
+    <string name="reboot_system">"再起動"</string>
+    <string name="reboot_progress">"再起動中です.."</string>
+    <string name="reboot_confirm">"再起動しますか"</string>
+    <string name="global_action_reboot">"再起動"</string>
+
 </resources>
