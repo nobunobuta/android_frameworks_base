@@ -708,8 +708,9 @@
     <string name="accessibility_compound_button_unselected" msgid="8864512895673924091">"オフ"</string>
 
     <!-- Additions by Cyanogen -->
-    <string name="zz_reboot_system">"再起動"</string>
-    <string name="zz_reboot_progress">"再起動中です"</string>
-    <string name="zz_reboot_confirm">"再起動しますか"</string>
-    <string name="zz_global_action_reboot">"再起動"</string>
+    <string name="reboot_system">"再起動"</string>
+    <string name="reboot_progress">"再起動中です.."</string>
+    <string name="reboot_confirm">"再起動しますか"</string>
+    <string name="global_action_reboot">"再起動"</string>
+
 </resources>
