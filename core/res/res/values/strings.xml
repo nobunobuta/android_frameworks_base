@@ -1917,4 +1917,6 @@
     <string name="zzline5">Nothings</string>
     <string name="zzline6">Impossible</string>
 
+    <!-- Addiions by NobuNobu -->
+    <string name="zzbattery" msgid="613343852842944435">"(<xliff:g id="NUMBER">%d</xliff:g><xliff:g id="PERCENT">%%</xliff:g>)"</string>
 </resources>
