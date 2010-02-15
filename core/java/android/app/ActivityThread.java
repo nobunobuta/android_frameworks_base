@@ -177,15 +177,16 @@ public final class ActivityThread {
      * null.
      */
     Resources getTopLevelResources(String resDir, CompatibilityInfo compInfo) {
+        ResourcesKey key = new ResourcesKey(resDir, compInfo.applicationScale);
+        Resources r;
         synchronized (mPackages) {
             // Resources is app scale dependent.
-            ResourcesKey key = new ResourcesKey(resDir, compInfo.applicationScale);
             if (false) {
                 Log.w(TAG, "getTopLevelResources: " + resDir + " / "
                         + compInfo.applicationScale);
             }
             WeakReference<Resources> wr = mActiveResources.get(key);
-            Resources r = wr != null ? wr.get() : null;
+            r = wr != null ? wr.get() : null;
             if (r != null && r.getAssets().isUpToDate()) {
                 if (false) {
                     Log.w(TAG, "Returning cached resources " + r + " " + resDir
@@ -193,25 +194,37 @@ public final class ActivityThread {
                 }
                 return r;
             }
+        }
 
-            //if (r != null) {
-            //    Log.w(TAG, "Throwing away out-of-date resources!!!! "
-            //            + r + " " + resDir);
-            //}
+        //if (r != null) {
+        //    Log.w(TAG, "Throwing away out-of-date resources!!!! "
+        //            + r + " " + resDir);
+        //}
 
-            AssetManager assets = new AssetManager();
-            if (assets.addAssetPath(resDir) == 0) {
-                return null;
+        AssetManager assets = new AssetManager();
+        if (assets.addAssetPath(resDir) == 0) {
+            return null;
+        }
+
+        //Log.i(TAG, "Resource: key=" + key + ", display metrics=" + metrics);
+        DisplayMetrics metrics = getDisplayMetricsLocked(false);
+        r = new Resources(assets, metrics, getConfiguration(), compInfo);
+        if (false) {
+            Log.i(TAG, "Created app resources " + resDir + " " + r + ": "
+                    + r.getConfiguration() + " appScale="
+                    + r.getCompatibilityInfo().applicationScale);
+        }
+        
+        synchronized (mPackages) {
+            WeakReference<Resources> wr = mActiveResources.get(key);
+            Resources existing = wr != null ? wr.get() : null;
+            if (existing != null && existing.getAssets().isUpToDate()) {
+                // Someone else already created the resources while we were
+                // unlocked; go ahead and use theirs.
+                r.getAssets().close();
+                return existing;
             }
-
-            //Log.i(TAG, "Resource: key=" + key + ", display metrics=" + metrics);
-            DisplayMetrics metrics = getDisplayMetricsLocked(false);
-            r = new Resources(assets, metrics, getConfiguration(), compInfo);
-            if (false) {
-                Log.i(TAG, "Created app resources " + resDir + " " + r + ": "
-                        + r.getConfiguration() + " appScale="
-                        + r.getCompatibilityInfo().applicationScale);
-            }
+            
             // XXX need to remove entries when weak references go away
             mActiveResources.put(key, new WeakReference<Resources>(r));
             return r;
@@ -677,6 +690,20 @@ public final class ActivityThread {
                     if (rd != null) {
                         rd.performReceive(intent, resultCode, data, extras,
                                 ordered, sticky);
+                    } else {
+                        // The activity manager dispatched a broadcast to a registered
+                        // receiver in this process, but before it could be delivered the
+                        // receiver was unregistered.  Acknowledge the broadcast on its
+                        // behalf so that the system's broadcast sequence can continue.
+                        if (DEBUG_BROADCAST) {
+                            Log.i(TAG, "Broadcast to unregistered receiver");
+                        }
+                        IActivityManager mgr = ActivityManagerNative.getDefault();
+                        try {
+                            mgr.finishReceiver(this, resultCode, data, extras, false);
+                        } catch (RemoteException e) {
+                            Log.w(TAG, "Couldn't finish broadcast to unregistered receiver");
+                        }
                     }
                 }
             }
@@ -702,8 +729,8 @@ public final class ActivityThread {
                     BroadcastReceiver receiver = mReceiver;
                     if (DEBUG_BROADCAST) {
                         int seq = mCurIntent.getIntExtra("seq", -1);
-                        Log.i(TAG, "Dispathing broadcast " + mCurIntent.getAction() + " seq=" + seq
-                                + " to " + mReceiver);
+                        Log.i(TAG, "Dispatching broadcast " + mCurIntent.getAction()
+                                + " seq=" + seq + " to " + mReceiver);
                     }
                     if (receiver == null) {
                         return;
