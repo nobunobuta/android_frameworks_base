@@ -176,6 +176,9 @@ public class GpsLocationProvider extends ILocationProvider.Stub {
 
     // true if GPS is navigating
     private boolean mNavigating;
+
+    // true if GPS engine is on
+    private boolean mEngineOn;
     
     // requested frequency of fixes, in seconds
     private int mFixInterval = 1;
@@ -545,13 +548,17 @@ public class GpsLocationProvider extends ILocationProvider.Stub {
             mNetworkThread = null;
         }
 
+        // do this before releasing wakelock
+        native_cleanup();
+
         // The GpsEventThread does not wait for the GPS to shutdown
         // so we need to report the GPS_STATUS_ENGINE_OFF event here
         if (mNavigating) {
+            reportStatus(GPS_STATUS_SESSION_END);
+        }
+        if (mEngineOn) {
             reportStatus(GPS_STATUS_ENGINE_OFF);
         }
-
-        native_cleanup();
     }
 
     public boolean isEnabled() {
@@ -855,54 +862,70 @@ public class GpsLocationProvider extends ILocationProvider.Stub {
 
         synchronized(mListeners) {
             boolean wasNavigating = mNavigating;
-            mNavigating = (status == GPS_STATUS_SESSION_BEGIN);
-    
-            if (wasNavigating == mNavigating) {
-                return;
+
+            switch (status) {
+                case GPS_STATUS_SESSION_BEGIN:
+                    mNavigating = true;
+                    mEngineOn = true;
+                    break;
+                case GPS_STATUS_SESSION_END:
+                    mNavigating = false;
+                    break;
+                case GPS_STATUS_ENGINE_ON:
+                    mEngineOn = true;
+                    break;
+                case GPS_STATUS_ENGINE_OFF:
+                    mEngineOn = false;
+                    mNavigating = false;
+                    break;
             }
-            
-            if (mNavigating) {
+
+            // beware, the events can come out of order
+            if ((mNavigating || mEngineOn) && !mWakeLock.isHeld()) {
                 if (DEBUG) Log.d(TAG, "Acquiring wakelock");
                  mWakeLock.acquire();
             }
-        
-            int size = mListeners.size();
-            for (int i = 0; i < size; i++) {
-                Listener listener = mListeners.get(i);
+
+            if (wasNavigating != mNavigating) {
+                int size = mListeners.size();
+                for (int i = 0; i < size; i++) {
+                    Listener listener = mListeners.get(i);
+                    try {
+                        if (mNavigating) {
+                            listener.mListener.onGpsStarted();
+                        } else {
+                            listener.mListener.onGpsStopped();
+                        }
+                    } catch (RemoteException e) {
+                        Log.w(TAG, "RemoteException in reportStatus");
+                        mListeners.remove(listener);
+                        // adjust for size of list changing
+                        size--;
+                    }
+                }
+
                 try {
-                    if (mNavigating) {
-                        listener.mListener.onGpsStarted(); 
-                    } else {
-                        listener.mListener.onGpsStopped(); 
+                    // update battery stats
+                    for (int i=mClientUids.size() - 1; i >= 0; i--) {
+                        int uid = mClientUids.keyAt(i);
+                        if (mNavigating) {
+                            mBatteryStats.noteStartGps(uid);
+                        } else {
+                            mBatteryStats.noteStopGps(uid);
+                        }
                     }
                 } catch (RemoteException e) {
                     Log.w(TAG, "RemoteException in reportStatus");
-                    mListeners.remove(listener);
-                    // adjust for size of list changing
-                    size--;
                 }
+
+                // send an intent to notify that the GPS has been enabled or disabled.
+                Intent intent = new Intent(GPS_ENABLED_CHANGE_ACTION);
+                intent.putExtra(EXTRA_ENABLED, mNavigating);
+                mContext.sendBroadcast(intent);
             }
 
-            try {
-                // update battery stats
-                for (int i=mClientUids.size() - 1; i >= 0; i--) {
-                    int uid = mClientUids.keyAt(i);
-                    if (mNavigating) {
-                        mBatteryStats.noteStartGps(uid);
-                    } else {
-                        mBatteryStats.noteStopGps(uid);
-                    }
-                }
-            } catch (RemoteException e) {
-                Log.w(TAG, "RemoteException in reportStatus");
-            }
-
-            // send an intent to notify that the GPS has been enabled or disabled.
-            Intent intent = new Intent(GPS_ENABLED_CHANGE_ACTION);
-            intent.putExtra(EXTRA_ENABLED, mNavigating);
-            mContext.sendBroadcast(intent);
-
-            if (!mNavigating) {
+            // beware, the events can come out of order
+            if (!mNavigating && !mEngineOn && mWakeLock.isHeld()) {
                 if (DEBUG) Log.d(TAG, "Releasing wakelock");
                 mWakeLock.release();
             }
