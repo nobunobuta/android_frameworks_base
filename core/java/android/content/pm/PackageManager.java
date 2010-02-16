@@ -159,8 +159,10 @@ public abstract class PackageManager {
     
     /**
      * {@link PackageInfo} flag: return information about
-     * hardware preferences
-     * {@link PackageInfo#configPreferences}
+     * hardware preferences in
+     * {@link PackageInfo#configPreferences PackageInfo.configPreferences} and
+     * requested features in {@link PackageInfo#reqFeatures
+     * PackageInfo.reqFeatures}. 
      */
     public static final int GET_CONFIGURATIONS = 0x00004000;
 
@@ -400,6 +402,14 @@ public abstract class PackageManager {
     public static final int INSTALL_FAILED_CPU_ABI_INCOMPATIBLE = -16;
 
     /**
+     * Installation return code: this is passed to the {@link IPackageInstallObserver} by
+     * {@link #installPackage(android.net.Uri, IPackageInstallObserver, int)} if
+     * the new package uses a feature that is not available.
+     * @hide
+     */
+    public static final int INSTALL_FAILED_MISSING_FEATURE = -17;
+
+    /**
      * Installation parse return code: this is passed to the {@link IPackageInstallObserver} by
      * {@link #installPackage(android.net.Uri, IPackageInstallObserver, int)}
      * if the parser was given a path that is not a file, or does not end with the expected
@@ -503,6 +513,68 @@ public abstract class PackageManager {
      */
     public static final int DONT_DELETE_DATA = 0x00000001;
 
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has a camera facing away
+     * from the screen.
+     */
+    public static final String FEATURE_CAMERA = "android.hardware.camera";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device's camera supports auto-focus.
+     */
+    public static final String FEATURE_CAMERA_AUTOFOCUS = "android.hardware.camera.autofocus";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device's camera supports flash.
+     */
+    public static final String FEATURE_CAMERA_FLASH = "android.hardware.camera.flash";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device includes a light sensor.
+     */
+    public static final String FEATURE_SENSOR_LIGHT = "android.hardware.sensor.light";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device includes a proximity sensor.
+     */
+    public static final String FEATURE_SENSOR_PROXIMITY = "android.hardware.sensor.proximity";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has a telephony radio with data
+     * communication support.
+     */
+    public static final String FEATURE_TELEPHONY = "android.hardware.telephony";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has a CDMA telephony stack.
+     */
+    public static final String FEATURE_TELEPHONY_CDMA = "android.hardware.telephony.cdma";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device has a GSM telephony stack.
+     */
+    public static final String FEATURE_TELEPHONY_GSM = "android.hardware.telephony.gsm";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device's touch screen supports multitouch.
+     */
+    public static final String FEATURE_TOUCHSCREEN_MULTITOUCH = "android.hardware.touchscreen.multitouch";
+    
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device supports live wallpapers.
+     */
+    public static final String FEATURE_LIVE_WALLPAPER = "android.software.live_wallpaper";
+    
     /**
      * Retrieve overall information about an application package that is
      * installed on the system.
@@ -949,6 +1021,24 @@ public abstract class PackageManager {
      * 
      */
     public abstract String[] getSystemSharedLibraryNames();
+
+    /**
+     * Get a list of features that are available on the
+     * system.
+     * 
+     * @return An array of FeatureInfo classes describing the features
+     * that are available on the system, or null if there are none(!!).
+     */
+    public abstract FeatureInfo[] getSystemAvailableFeatures();
+
+    /**
+     * Check whether the given feature name is one of the available
+     * features as returned by {@link #getSystemAvailableFeatures()}.
+     * 
+     * @return Returns true if the devices supports the feature, else
+     * false.
+     */
+    public abstract boolean hasSystemFeature(String name);
 
     /**
      * Determine the best action to perform for a given Intent.  This is how
