@@ -14,8 +14,6 @@
 ** limitations under the License.
 */
 
-#define LOG_TAG "keystore"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -85,28 +83,47 @@ static int check_reset_perm(int uid)
     return -1;
 }
 
-static int parse_keyname(char *name, uint32_t len,
-                         char *namespace, char *keyname)
+/**
+ * The function parse_strings() only handle two or three tokens just for
+ * keystore's need.
+ */
+static int parse_strings(char *data, int data_len, int ntokens, ...)
 {
     int count = 0;
-    char *c = namespace, *p = namespace, *t = name;
+    va_list args;
+    char *p = data, **q;
 
-    if (!name || !namespace || !keyname) return -1;
-    while (t < name + len && (*t != 0)) {
-        if (*t == ' ') {
-            if (c == keyname) return -1;
-            *p = count = 0;
-            c = p = keyname;
-            t++;
-        } else {
-            if (!isalnum(*t)) return -1;
-            *p++ = *t++;
-            // also check if the keyname/namespace is too long.
-            if (count++ == MAX_KEY_NAME_LENGTH) return -1;
+    va_start(args, ntokens);
+    q = va_arg(args, char**);
+    *q = p;
+    while (p < (data + data_len)) {
+        if (*(p++) == 0) {
+            if (++count == ntokens) break;
+            if ((q = va_arg(args, char**)) == NULL) break;
+            *q = p;
         }
     }
-    *p = 0;
-    return 0;
+    va_end(args);
+    // the first two strings should be null-terminated and the third could
+    // ignore the delimiter.
+    if (count >= 2) {
+        if ((ntokens == 3) || ((ntokens == 2) && (p == (data + data_len)))) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int is_alnum_string(char *s)
+{
+    char *s0 = s;
+    while (*s != 0) {
+        if (!isalnum(*s++)) {
+            LOGE("The string '%s' is not an alphanumeric string\n", s0);
+            return 0;
+        }
+    }
+    return 1;
 }
 
 // args of passwd():
@@ -114,7 +131,17 @@ static int parse_keyname(char *name, uint32_t len,
 // oldPassword newPassword - for changing the password
 static void do_passwd(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
-    reply->retcode = passwd((char*)cmd->data);
+    char *p1 = NULL, *p2 = NULL;
+
+    if (strlen((char*)cmd->data) == (cmd->len - 1)) {
+        reply->retcode = new_passwd((char*)cmd->data);
+    } else {
+        if (parse_strings((char *)cmd->data, cmd->len, 2, &p1, &p2) != 0) {
+            reply->retcode = -1;
+        } else {
+            reply->retcode = change_passwd(p1, p2);
+        }
+    }
 }
 
 // args of lock():
@@ -135,7 +162,9 @@ static void do_unlock(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 // no argument
 static void do_get_state(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
-    reply->retcode = get_state();
+    int s = get_state();
+    if (DBG) LOGD("keystore state = %d\n", s);
+    reply->retcode = s;
 }
 
 // args of listkeys():
@@ -150,8 +179,7 @@ static void do_listkeys(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 // namespace keyname
 static void do_get_key(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
-    char namespace[MAX_KEY_NAME_LENGTH];
-    char keyname[MAX_KEY_NAME_LENGTH];
+    char *namespace = NULL, *keyname = NULL;
 
     if (check_get_perm(cr.uid)) {
         LOGE("uid %d doesn't have the permission to get key value\n", cr.uid);
@@ -159,7 +187,8 @@ static void do_get_key(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
         return;
     }
 
-    if (parse_keyname((char*)cmd->data, cmd->len, namespace, keyname)) {
+    if (parse_strings((char*)cmd->data, cmd->len, 2, &namespace, &keyname) ||
+        !is_alnum_string(namespace) || !is_alnum_string(keyname)) {
         reply->retcode = -1;
     } else {
         reply->retcode = get_key(namespace, keyname, reply->data,
@@ -182,31 +211,26 @@ static int get_value_index(LPC_MARSHAL *cmd)
 // namespace keyname keyvalue
 static void do_put_key(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
-    char namespace[MAX_KEY_NAME_LENGTH];
-    char keyname[MAX_KEY_NAME_LENGTH];
+    char *namespace = NULL, *keyname = NULL;
+    char *value = NULL;
 
-    int p = get_value_index(cmd);
-    if (p == -1) {
+    if (parse_strings((char*)cmd->data, cmd->len, 3, &namespace, &keyname, &value) ||
+        !is_alnum_string(namespace) || !is_alnum_string(keyname)) {
         reply->retcode = -1;
-    } else {
-        unsigned char *value;
-        if (parse_keyname((char*)cmd->data, p - 1, namespace, keyname)) {
-            reply->retcode = -1;
-            return;
-        }
-        value = &cmd->data[p];
-        int len = cmd->len - p;
-        reply->retcode = put_key(namespace, keyname, value, len);
+        return;
     }
+    int len = cmd->len - (value - namespace);
+    reply->retcode = put_key(namespace, keyname, (unsigned char *)value, len);
 }
 
 // args of remove_key():
 // namespace keyname
 static void do_remove_key(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
-    char namespace[MAX_KEY_NAME_LENGTH];
-    char keyname[MAX_KEY_NAME_LENGTH];
-    if (parse_keyname((char*)cmd->data, cmd->len, namespace, keyname)) {
+    char *namespace = NULL, *keyname = NULL;
+
+    if (parse_strings((char*)cmd->data, cmd->len, 2, &namespace, &keyname) ||
+        !is_alnum_string(namespace) || !is_alnum_string(keyname)) {
         reply->retcode = -1;
         return;
     }
@@ -226,7 +250,7 @@ static void do_reset_keystore(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
     reply->retcode = reset_keystore();
 }
 
-static void execute(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
+void execute(LPC_MARSHAL *cmd, LPC_MARSHAL *reply)
 {
     uint32_t cmd_max = sizeof(cmds)/sizeof(struct cmdinfo);
 
@@ -259,8 +283,6 @@ static int append_input_from_file(const char *filename, LPC_MARSHAL *cmd)
         fprintf(stderr, "Can not open file %s\n", filename);
         return -1;
     }
-    cmd->data[cmd->len] = ' ';
-    cmd->len++;
     len = read(fd, cmd->data + cmd->len, BUFFER_MAX - cmd->len);
     if (len < 0 || (len == (int)(BUFFER_MAX - cmd->len))) {
         ret = -1;
@@ -277,18 +299,19 @@ static int flatten_str_args(int argc, const char **argv, LPC_MARSHAL *cmd)
     char *buf = (char*)cmd->data;
     buf[0] = 0;
     for (i = 0 ; i < argc ; ++i) {
+        // we also include the \0 character in the input.
         if (i == 0) {
-            len = strlcpy(buf, argv[i], BUFFER_MAX);
+            len = (strlcpy(buf, argv[i], BUFFER_MAX) + 1);
         } else {
-            len += snprintf(buf + len, BUFFER_MAX - len, " %s", argv[i]);
+            len += (snprintf(buf + len, BUFFER_MAX - len, "%s", argv[i]) + 1);
         }
         if (len >= BUFFER_MAX) return -1;
     }
-    if (len) cmd->len = len;
+    if (len) cmd->len = len ;
     return 0;
 }
 
-static int parse_cmd(int argc, const char **argv, LPC_MARSHAL *cmd)
+int parse_cmd(int argc, const char **argv, LPC_MARSHAL *cmd)
 {
     uint32_t i, len = 0;
     uint32_t cmd_max = sizeof(cmds)/sizeof(cmds[0]);
@@ -314,30 +337,30 @@ static int parse_cmd(int argc, const char **argv, LPC_MARSHAL *cmd)
     }
 }
 
-static int shell_command(const int argc, const char **argv)
+int shell_command(const int argc, const char **argv)
 {
     int fd, i;
     LPC_MARSHAL  cmd;
 
-    if (parse_cmd(argc, argv , &cmd)) {
+    if (parse_cmd(argc, argv, &cmd)) {
         fprintf(stderr, "Incorrect command or command line is too long.\n");
-        exit(1);
+        return -1;
     }
     fd = socket_local_client(SOCKET_PATH,
                              ANDROID_SOCKET_NAMESPACE_RESERVED,
                              SOCK_STREAM);
     if (fd == -1) {
         fprintf(stderr, "Keystore service is not up and running.\n");
-        exit(1);
+        return -1;
     }
 
     if (write_marshal(fd, &cmd)) {
         fprintf(stderr, "Incorrect command or command line is too long.\n");
-        exit(1);
+        return -1;
     }
     if (read_marshal(fd, &cmd)) {
         fprintf(stderr, "Failed to read the result.\n");
-        exit(1);
+        return -1;
     }
     cmd.data[cmd.len] = 0;
     fprintf(stdout, "%s\n", (cmd.retcode == 0) ? "Succeeded!" : "Failed!");
@@ -346,30 +369,26 @@ static int shell_command(const int argc, const char **argv)
     return 0;
 }
 
-int main(const int argc, const char *argv[])
+int server_main(const int argc, const char *argv[])
 {
     struct sockaddr addr;
     socklen_t alen;
     int lsocket, s;
     LPC_MARSHAL  cmd, reply;
 
-    if (argc > 1) {
-        return shell_command(argc - 1, argv + 1);
-    }
-
     if (init_keystore(KEYSTORE_DIR)) {
         LOGE("Can not initialize the keystore, the directory exist?\n");
-        exit(1);
+        return -1;
     }
 
     lsocket = android_get_control_socket(SOCKET_PATH);
     if (lsocket < 0) {
         LOGE("Failed to get socket from environment: %s\n", strerror(errno));
-        exit(1);
+        return -1;
     }
     if (listen(lsocket, 5)) {
         LOGE("Listen on socket failed: %s\n", strerror(errno));
-        exit(1);
+        return -1;
     }
     fcntl(lsocket, F_SETFD, FD_CLOEXEC);
     memset(&reply, 0, sizeof(LPC_MARSHAL));
@@ -398,12 +417,10 @@ int main(const int argc, const char *argv[])
 
         // read the command, execute and send the result back.
         if(read_marshal(s, &cmd)) goto err;
-        if (DBG) LOGD("new connection\n");
         execute(&cmd, &reply);
         write_marshal(s, &reply);
 err:
         memset(&reply, 0, sizeof(LPC_MARSHAL));
-        if (DBG) LOGD("closing connection\n");
         close(s);
     }
 
