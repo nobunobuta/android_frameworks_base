@@ -185,6 +185,7 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
     static final int LOG_AM_SERVICE_CRASHED_TOO_MUCH = 30034;
     static final int LOG_AM_SCHEDULE_SERVICE_RESTART = 30035;
     static final int LOG_AM_PROVIDER_LOST_PROCESS = 30036;
+    static final int LOG_AM_PROCESS_START_TIMEOUT = 30037;
     
     static final int LOG_BOOT_PROGRESS_AMS_READY = 3040;
     static final int LOG_BOOT_PROGRESS_ENABLE_SCREEN = 3050;
@@ -1897,11 +1898,16 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                 + " app=" + app + " knownToBeDead=" + knownToBeDead
                 + " thread=" + (app != null ? app.thread : null)
                 + " pid=" + (app != null ? app.pid : -1));
-        if (app != null &&
-                (!knownToBeDead || app.thread == null) && app.pid > 0) {
-            return app;
+        if (app != null && app.pid > 0) {
+            if (!knownToBeDead || app.thread == null) {
+                return app;
+            } else {
+                // An application record is attached to a previous process,
+                // clean it up now.
+                handleAppDiedLocked(app, true);
+            }
         }
-        
+
         String hostingNameStr = hostingName != null
                 ? hostingName.flattenToShortString() : null;
         
@@ -4539,7 +4545,9 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
 
         mProcDeaths[0]++;
         
-        if (app.thread != null && app.thread.asBinder() == thread.asBinder()) {
+        // Clean up already done if the process has been re-started.
+        if (app.pid == pid && app.thread != null &&
+                app.thread.asBinder() == thread.asBinder()) {
             Log.i(TAG, "Process " + app.processName + " (pid " + pid
                     + ") has died.");
             EventLog.writeEvent(LOG_AM_PROCESS_DIED, app.pid, app.processName);
@@ -4589,6 +4597,11 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                     scheduleAppGcsLocked();
                 }
             }
+        } else if (app.pid != pid) {
+            // A new process has already been started.
+            Log.i(TAG, "Process " + app.processName + " (pid " + pid
+                    + ") has died and restarted (pid " + app.pid + ").");
+            EventLog.writeEvent(LOG_AM_PROCESS_DIED, pid, app.processName);
         } else if (Config.LOGD) {
             Log.d(TAG, "Received spurious death notification for thread "
                     + thread.asBinder());
@@ -5185,13 +5198,23 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
         
         if (gone) {
             Log.w(TAG, "Process " + app + " failed to attach");
+            EventLog.writeEvent(LOG_AM_PROCESS_START_TIMEOUT, pid, app.info.uid,
+                    app.processName);
             mProcessNames.remove(app.processName, app.info.uid);
-            Process.killProcess(pid);
-            if (mPendingBroadcast != null && mPendingBroadcast.curApp.pid == pid) {
-                Log.w(TAG, "Unattached app died before broadcast acknowledged, skipping");
-                mPendingBroadcast = null;
-                scheduleBroadcastsLocked();
+            // Take care of any launching providers waiting for this process.
+            checkAppInLaunchingProvidersLocked(app, true);
+            // Take care of any services that are waiting for the process.
+            for (int i=0; i<mPendingServices.size(); i++) {
+                ServiceRecord sr = mPendingServices.get(i);
+                if (app.info.uid == sr.appInfo.uid
+                        && app.processName.equals(sr.processName)) {
+                    Log.w(TAG, "Forcing bringing down service: " + sr);
+                    mPendingServices.remove(i);
+                    i--;
+                    bringDownServiceLocked(sr, true);
+                }
             }
+            Process.killProcess(pid);
             if (mBackupTarget != null && mBackupTarget.app.pid == pid) {
                 Log.w(TAG, "Unattached app died before backup, skipping");
                 try {
@@ -5201,6 +5224,11 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                 } catch (RemoteException e) {
                     // Can't happen; the backup manager is local
                 }
+            }
+            if (mPendingBroadcast != null && mPendingBroadcast.curApp.pid == pid) {
+                Log.w(TAG, "Unattached app died before broadcast acknowledged, skipping");
+                mPendingBroadcast = null;
+                scheduleBroadcastsLocked();
             }
         } else {
             Log.w(TAG, "Spurious process start timeout - pid not known for " + app);
@@ -5394,6 +5422,8 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                 finishReceiverLocked(br.receiver, br.resultCode, br.resultData,
                         br.resultExtras, br.resultAbort, true);
                 scheduleBroadcastsLocked();
+                // We need to reset the state if we fails to start the receiver.
+                br.state = BroadcastRecord.IDLE;
             }
         }
 
@@ -9921,23 +9951,11 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
             app.pubProviders.clear();
         }
         
-        // Look through the content providers we are waiting to have launched,
-        // and if any run in this process then either schedule a restart of
-        // the process or kill the client waiting for it if this process has
-        // gone bad.
-        for (int i=0; i<NL; i++) {
-            ContentProviderRecord cpr = (ContentProviderRecord)
-                    mLaunchingProviders.get(i);
-            if (cpr.launchingApp == app) {
-                if (!app.bad) {
-                    restart = true;
-                } else {
-                    removeDyingProviderLocked(app, cpr);
-                    NL = mLaunchingProviders.size();
-                }
-            }
+        // Take care of any launching providers waiting for this process.
+        if (checkAppInLaunchingProvidersLocked(app, false)) {
+            restart = true;
         }
-
+        
         // Unregister from connected content providers.
         if (!app.conProviders.isEmpty()) {
             Iterator it = app.conProviders.keySet().iterator();
@@ -10032,6 +10050,28 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
         }
     }
 
+    boolean checkAppInLaunchingProvidersLocked(ProcessRecord app, boolean alwaysBad) {
+        // Look through the content providers we are waiting to have launched,
+        // and if any run in this process then either schedule a restart of
+        // the process or kill the client waiting for it if this process has
+        // gone bad.
+        int NL = mLaunchingProviders.size();
+        boolean restart = false;
+        for (int i=0; i<NL; i++) {
+            ContentProviderRecord cpr = (ContentProviderRecord)
+                    mLaunchingProviders.get(i);
+            if (cpr.launchingApp == app) {
+                if (!alwaysBad && !app.bad) {
+                    restart = true;
+                } else {
+                    removeDyingProviderLocked(app, cpr);
+                    NL = mLaunchingProviders.size();
+                }
+            }
+        }
+        return restart;
+    }
+    
     // =========================================================
     // SERVICES
     // =========================================================
@@ -10222,7 +10262,7 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                                 sInfo.applicationInfo.uid, sInfo.packageName,
                                 sInfo.name);
                     }
-                    r = new ServiceRecord(ss, name, filter, sInfo, res);
+                    r = new ServiceRecord(this, ss, name, filter, sInfo, res);
                     res.setService(r);
                     mServices.put(name, r);
                     mServicesByIntent.put(filter, r);
@@ -12791,6 +12831,11 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
 
                 mConfiguration = newConfig;
                 Log.i(TAG, "Config changed: " + newConfig);
+                
+                AttributeCache ac = AttributeCache.instance();
+                if (ac != null) {
+                    ac.updateConfiguration(mConfiguration);
+                }
 
                 Message msg = mHandler.obtainMessage(UPDATE_CONFIGURATION_MSG);
                 msg.obj = new Configuration(mConfiguration);
@@ -12809,12 +12854,14 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
                     }
                 }
                 Intent intent = new Intent(Intent.ACTION_CONFIGURATION_CHANGED);
+                intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY);
                 broadcastIntentLocked(null, null, intent, null, null, 0, null, null,
                         null, false, false, MY_PID, Process.SYSTEM_UID);
-                
-                AttributeCache ac = AttributeCache.instance();
-                if (ac != null) {
-                    ac.updateConfiguration(mConfiguration);
+                if ((changes&ActivityInfo.CONFIG_LOCALE) != 0) {
+                    broadcastIntentLocked(null, null,
+                            new Intent(Intent.ACTION_LOCALE_CHANGED),
+                            null, null, 0, null, null,
+                            null, false, false, MY_PID, Process.SYSTEM_UID);
                 }
             }
         }
@@ -12861,7 +12908,7 @@ public final class ActivityManagerService extends ActivityManagerNative implemen
         try {
             if (DEBUG_SWITCH) Log.i(TAG, "Switch is restarting resumed " + r);
             r.app.thread.scheduleRelaunchActivity(r, results, newIntents,
-                    changes, !andResume);
+                    changes, !andResume, mConfiguration);
             // Note: don't need to call pauseIfSleepingLocked() here, because
             // the caller will only pass in 'andResume' if this activity is
             // currently resumed, which implies we aren't sleeping.

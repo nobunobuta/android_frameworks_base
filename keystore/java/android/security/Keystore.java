@@ -22,8 +22,9 @@ package android.security;
  */
 
 public abstract class Keystore {
-    private static final String TAG = "Keystore";
-    private static final String[] NOTFOUND = new String[0];
+    /** Action to unlock (or initialize) the keystore. */
+    public static final String ACTION_UNLOCK_CREDENTIAL_STORAGE =
+            "android.security.UNLOCK_CREDENTIAL_STORAGE";
 
     // Keystore States
     public static final int BOOTUP = 0;
@@ -31,8 +32,9 @@ public abstract class Keystore {
     public static final int LOCKED = 2;
     public static final int UNLOCKED = 3;
 
-    /**
-     */
+    private static final String TAG = "Keystore";
+    private static final String[] NOTFOUND = new String[0];
+
     public static Keystore getInstance() {
         return new FileKeystore();
     }
@@ -53,13 +55,12 @@ public abstract class Keystore {
         private static final String CA_CERTIFICATE = "CaCertificate";
         private static final String USER_CERTIFICATE = "UserCertificate";
         private static final String USER_KEY = "UserPrivateKey";
-        private static final String COMMAND_DELIMITER = " ";
         private static final ServiceCommand mServiceCommand =
                 new ServiceCommand(SERVICE_NAME);
 
         @Override
         public int lock() {
-            Reply result = mServiceCommand.execute(ServiceCommand.LOCK, null);
+            Reply result = mServiceCommand.execute(ServiceCommand.LOCK);
             return (result != null) ? result.returnCode : -1;
         }
 
@@ -72,15 +73,14 @@ public abstract class Keystore {
 
         @Override
         public int getState() {
-            Reply result = mServiceCommand.execute(ServiceCommand.GET_STATE,
-                    null);
+            Reply result = mServiceCommand.execute(ServiceCommand.GET_STATE);
             return (result != null) ? result.returnCode : -1;
         }
 
         @Override
         public int changePassword(String oldPassword, String newPassword) {
             Reply result = mServiceCommand.execute(ServiceCommand.PASSWD,
-                    oldPassword + " " + newPassword);
+                    oldPassword, newPassword);
             return (result != null) ? result.returnCode : -1;
         }
 
@@ -105,14 +105,14 @@ public abstract class Keystore {
         @Override
         public int put(String namespace, String keyname, String value) {
             Reply result = mServiceCommand.execute(ServiceCommand.PUT_KEY,
-                    namespace + " " + keyname + " " + value);
+                    namespace, keyname, value);
             return (result != null) ? result.returnCode : -1;
         }
 
         @Override
         public String get(String namespace, String keyname) {
             Reply result = mServiceCommand.execute(ServiceCommand.GET_KEY,
-                    namespace + " " + keyname);
+                    namespace, keyname);
             return (result != null) ? ((result.returnCode != 0) ? null :
                     new String(result.data, 0, result.len)) : null;
         }
@@ -120,13 +120,13 @@ public abstract class Keystore {
         @Override
         public int remove(String namespace, String keyname) {
             Reply result = mServiceCommand.execute(ServiceCommand.REMOVE_KEY,
-                    namespace + " " + keyname);
+                    namespace, keyname);
             return (result != null) ? result.returnCode : -1;
         }
 
         @Override
         public int reset() {
-            Reply result = mServiceCommand.execute(ServiceCommand.RESET, null);
+            Reply result = mServiceCommand.execute(ServiceCommand.RESET);
             return (result != null) ? result.returnCode : -1;
         }
     }
